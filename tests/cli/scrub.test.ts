@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -137,4 +138,62 @@ test('handleScrub returns stats alongside the scrubbed content', async (t) => {
   const result = await handleScrub('Mail alice@example.com and bob@example.com', {});
   t.is(result.stats.totalEntities, 2);
   t.deepEqual(result.stats.byCategory, { Email: 2 });
+});
+
+test.serial('scrub command with --json outputs empty state JSON when stdin is empty', async (t) => {
+  const program = new Command();
+  setupScrubCommand(program);
+
+  const originalExit = process.exit;
+  const originalStdoutWrite = process.stdout.write;
+  let exitCode: number | undefined;
+  let stdoutOutput = '';
+
+  process.exit = ((code?: number) => {
+    exitCode = code;
+  }) as unknown as typeof process.exit;
+  process.stdout.write = (chunk: string | Uint8Array) => {
+    stdoutOutput += chunk.toString();
+    return true;
+  };
+
+  await program.parseAsync(['node', 'test', 'scrub', '--json']);
+
+  process.exit = originalExit;
+  process.stdout.write = originalStdoutWrite;
+
+  t.is(exitCode, 0);
+
+  const parsed = JSON.parse(stdoutOutput);
+  t.is(parsed.scrubbedContent, '');
+  t.is(parsed.sessionId, '');
+  t.deepEqual(parsed.sessionMap, {});
+  t.deepEqual(parsed.stats, { totalEntities: 0, byCategory: {} });
+});
+
+test.serial('scrub command with --json outputs error JSON when file is unreadable', async (t) => {
+  const program = new Command();
+  setupScrubCommand(program);
+
+  const originalExit = process.exit;
+  const originalError = console.error;
+  let exitCode: number | undefined;
+  let errorOutput = '';
+
+  process.exit = ((code?: number) => {
+    exitCode = code;
+  }) as unknown as typeof process.exit;
+  console.error = (msg: string) => {
+    errorOutput += msg;
+  };
+
+  await program.parseAsync(['node', 'test', 'scrub', 'non-existent-file-999.txt', '--json']);
+
+  process.exit = originalExit;
+  console.error = originalError;
+
+  t.is(exitCode, 1);
+  
+  const parsed = JSON.parse(errorOutput);
+  t.true(parsed.error.includes('Error reading file'));
 });

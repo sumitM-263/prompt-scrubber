@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import test from 'ava';
 import { computeHash, formatInspectOutput, handleInspect } from '../../src/cli/commands/inspect.js';
 
@@ -98,4 +99,61 @@ test.serial('inspect command fails when no stdin is provided', async (t) => {
 
   t.is(exitCode, 1);
   t.true(errorOutput.includes('No input provided'));
+});
+
+test.serial('inspect command with --json outputs empty state JSON when stdin is empty', async (t) => {
+  const program = new Command();
+  setupInspectCommand(program);
+
+  const originalExit = process.exit;
+  const originalStdoutWrite = process.stdout.write;
+  let exitCode: number | undefined;
+  let stdoutOutput = '';
+
+  process.exit = ((code?: number) => {
+    exitCode = code;
+  }) as unknown as typeof process.exit;
+  process.stdout.write = (chunk: string | Uint8Array) => {
+    stdoutOutput += chunk.toString();
+    return true;
+  };
+
+  await program.parseAsync(['node', 'test', 'inspect', '--json']);
+
+  process.exit = originalExit;
+  process.stdout.write = originalStdoutWrite;
+
+  t.is(exitCode, 0);
+
+  const parsed = JSON.parse(stdoutOutput);
+  t.deepEqual(parsed.findings, []);
+  t.is(typeof parsed.hash, 'string');
+  t.is(parsed.count, 0);
+});
+
+test.serial('inspect command with --json outputs error JSON when file is unreadable', async (t) => {
+  const program = new Command();
+  setupInspectCommand(program);
+
+  const originalExit = process.exit;
+  const originalError = console.error;
+  let exitCode: number | undefined;
+  let errorOutput = '';
+
+  process.exit = ((code?: number) => {
+    exitCode = code;
+  }) as unknown as typeof process.exit;
+  console.error = (msg: string) => {
+    errorOutput += msg;
+  };
+
+  await program.parseAsync(['node', 'test', 'inspect', 'non-existent-file-999.txt', '--json'], { from: 'user' });
+
+  process.exit = originalExit;
+  console.error = originalError;
+
+  t.is(exitCode, 1);
+
+  const parsed = JSON.parse(errorOutput);
+  t.true(parsed.error.includes('Error reading file'));
 });

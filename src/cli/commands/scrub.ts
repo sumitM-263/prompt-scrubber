@@ -100,6 +100,7 @@ export function setupScrubCommand(program: Command) {
       'Comma-separated list of hostnames to pass-through in URLs (subdomains are implicitly allowed)',
     )
     .option('-q, --quiet', 'Suppress the scrub summary printed to stderr')
+    .option('--json', 'Output results as a structured JSON object')
     .action(async (file, options) => {
       let input = '';
 
@@ -107,7 +108,11 @@ export function setupScrubCommand(program: Command) {
         try {
           input = readFileSync(file, 'utf8');
         } catch (err: unknown) {
-          console.error(`Error reading file: ${(err as Error).message}`);
+          if (options.json) {
+            console.error(JSON.stringify({ error: `Error reading file: ${(err as Error).message}` }));
+          } else {
+            console.error(`Error reading file: ${(err as Error).message}`);
+          }
           process.exit(1);
           return;
         }
@@ -116,29 +121,61 @@ export function setupScrubCommand(program: Command) {
         try {
           input = readFileSync(0, 'utf-8');
         } catch {
-          console.error('No input provided.');
+          if (options.json) {
+            console.error(JSON.stringify({ error: 'No input provided.' }));
+          } else {
+            console.error('No input provided.');
+          }
           process.exit(1);
           return;
         }
       }
 
       if (!input) {
+        if (options.json) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                scrubbedContent: '',
+                sessionId: options.sessionId ?? '',
+                sessionMap: {},
+                stats: { totalEntities: 0, byCategory: {} },
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        }
         process.exit(0);
         return;
       }
 
-      const result = await handleScrub(input, options);
+      try {
+        const result = await handleScrub(input, options);
 
-      // Print scrubbed content to stdout
-      process.stdout.write(result.scrubbedContent as string);
+        if (options.json) {
+          process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+          return;
+        }
 
-      // Print session ID to stderr
-      if (result.scrubbedContent !== input) {
-        console.error(`Session ID: ${result.sessionId}`);
-      }
+        // Print scrubbed content to stdout
+        process.stdout.write(result.scrubbedContent as string);
 
-      if (!options.quiet) {
-        console.error(formatScrubSummary(result.stats));
+        // Print session ID to stderr
+        if (result.scrubbedContent !== input) {
+          console.error(`Session ID: ${result.sessionId}`);
+        }
+
+        if (!options.quiet) {
+          console.error(formatScrubSummary(result.stats));
+        }
+      } catch (err: unknown) {
+        if (options.json) {
+          console.error(JSON.stringify({ error: (err as Error).message }));
+        } else {
+          console.error(`Scrubbing failed: ${(err as Error).message}`);
+        }
+        process.exit(1);
       }
     });
 }

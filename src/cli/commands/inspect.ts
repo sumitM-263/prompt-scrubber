@@ -115,6 +115,7 @@ export function setupInspectCommand(program: Command) {
       'Comma-separated list of hostnames to pass-through in URLs (subdomains are implicitly allowed)',
     )
     .option('--hash', 'Print only the SHA-256 hash of the scrubbed output')
+    .option('--json', 'Output results as a structured JSON object')
     .action(async (file, options) => {
       let input = '';
 
@@ -122,7 +123,11 @@ export function setupInspectCommand(program: Command) {
         try {
           input = readFileSync(file, 'utf8');
         } catch (err: unknown) {
-          console.error(`Error reading file: ${(err as Error).message}`);
+          if (options.json) {
+            console.error(JSON.stringify({ error: `Error reading file: ${(err as Error).message}` }));
+          } else {
+            console.error(`Error reading file: ${(err as Error).message}`);
+          }
           process.exit(1);
           return;
         }
@@ -131,25 +136,60 @@ export function setupInspectCommand(program: Command) {
         try {
           input = readFileSync(0, 'utf-8');
         } catch {
-          console.error('No input provided.');
+          if (options.json) {
+            console.error(JSON.stringify({ error: 'No input provided.' }));
+          } else {
+            console.error('No input provided.');
+          }
           process.exit(1);
           return;
         }
       }
 
       if (!input) {
+        const emptyHash = computeHash('', []);
+        if (options.json) {
+          process.stdout.write(
+            JSON.stringify({ findings: [], hash: emptyHash, count: 0 }, null, 2) + '\n',
+          );
+        } else if (options.hash) {
+          process.stdout.write(`${emptyHash}\n`);
+        } else {
+          process.stdout.write(formatInspectOutput([], emptyHash));
+        }
         process.exit(0);
         return;
       }
 
-      const findings = await handleInspect(input, options);
-      const hash = computeHash(input, findings);
+    try {
+        const findings = await handleInspect(input, options);
+        const hash = computeHash(input, findings);
 
-      if (options.hash) {
-        process.stdout.write(`${hash}\n`);
-      } else {
-        const output = formatInspectOutput(findings, hash);
-        process.stdout.write(output);
+        if (options.json) {
+          process.stdout.write(
+            JSON.stringify(
+              {
+                findings,
+                hash,
+                count: findings.length,
+              },
+              null,
+              2,
+            ) + '\n',
+          );
+        } else if (options.hash) {
+          process.stdout.write(`${hash}\n`);
+        } else {
+          const output = formatInspectOutput(findings, hash);
+          process.stdout.write(output);
+        }
+      } catch (err: unknown) {
+        if (options.json) {
+          console.error(JSON.stringify({ error: (err as Error).message }));
+        } else {
+          console.error(`Inspection failed: ${(err as Error).message}`);
+        }
+        process.exit(1);
       }
     });
 }
